@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:hive/hive.dart';
+import '../models/scan_record.dart';
 
 enum ScanState { scanningFront, scanningBack, processing }
 
@@ -125,19 +129,66 @@ Future<void> _initializeCamera() async {
         }
       });
     }
-  void _finishScanning() {
+  Future<void> _finishScanning() async {
     setState(() => _currentState = ScanState.processing);
     _cameraController?.stopImageStream();
     
-    // Combine text and move to Phase 3 (Backend API call)
     String finalText = "$_frontCardText\n\n$_backCardText";
-    print("FINAL EXTRACTED TEXT:\n$finalText");
     
-    // For now, just pop back to home
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Card Scanned! Backend sync coming soon.')),
+    // Show a loading dialog while talking to Laravel
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
-    Navigator.pop(context);
+
+    try {
+      // 1. Send the raw text to your Laravel API
+      final response = await http.post(
+        Uri.parse('http://192.168.68.135:8000/api/parse-card'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'raw_text': finalText}),
+      );
+
+      // Dismiss the loading indicator
+      if (!mounted) return;
+      Navigator.pop(context); 
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        final parsedData = responseData['data'];
+
+        // 2. Save the AI's structured data into our local Hive Database
+        final scansBox = Hive.box<ScanRecord>('scansBox');
+        final newRecord = ScanRecord(
+          name: parsedData['Name'] ?? 'Unknown Name',
+          organization: parsedData['Organisation'] ?? 'Unknown Org',
+          designation: parsedData['Designation'] ?? 'Unknown Title',
+          phone: parsedData['Mobile'] ?? parsedData['Telephone'] ?? 'No Phone', // Fallback to Telephone if Mobile is null
+          email: parsedData['Email'] ?? 'No Email',
+          scannedAt: DateTime.now(),
+          isSynced: false, 
+        );
+        
+        await scansBox.add(newRecord);
+
+        // 3. Go back to Home Screen
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Card parsed and saved locally!'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context); 
+
+      } else {
+        throw Exception("Server Error: ${response.statusCode}");
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Dismiss loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network Error: $e'), backgroundColor: Colors.red),
+      );
+      Navigator.pop(context); // Go back to Home Screen
+    }
   }
 
   @override

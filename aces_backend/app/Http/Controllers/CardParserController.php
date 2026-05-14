@@ -14,52 +14,48 @@ class CardParserController extends Controller
         ]);
 
         $rawText = $request->input('raw_text');
-        $apiKey = env('GEMINI_API_KEY');
+        $apiKey  = config('services.gemini.key'); // use config(), not env()
 
-        // 1. The Bulletproof System Prompt (Cleaned up the copy-paste artifact)
-        $prompt = "You are an expert data extraction API. Extract the following business card text into a strict JSON object. 
-        Use EXACTLY these keys: Name, Designation, Organisation, Mobile, Telephone, Email, FAX, Address, Links. 
-        If a field is missing, make its value null. Fix obvious OCR typos. 
-        IMPORTANT: Return ONLY the raw JSON string. Do not use markdown formatting, do not wrap it in\n" . $rawText;
+        $prompt = "You are an expert data extraction API. Extract the following business card text into a strict JSON object.
+Use EXACTLY these keys: Name, Designation, Organisation, Mobile, Telephone, Email, FAX, Address, Links.
+If a field is missing, make its value null. Fix obvious OCR typos.
+IMPORTANT: Return ONLY the raw JSON string. Do not use markdown formatting, do not wrap in backticks.
 
-        // 3. Call the Gemini API
-        $response = Http::withoutVerifying()->withHeaders([
-            'Content-Type' => 'application/json',
-        ])->post('https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=' . $apiKey, [
-            'contents' => [
-                [
-                    'parts' => [
-                        ['text' => $prompt]
-                    ]
-                ]
-            ],
-            'generationConfig' => [
-                // This is a Gemini 1.5 feature that guarantees the output is purely JSON
-                'response_mime_type' => 'application/json',
-            ]
-        ]);
+Business card text:
+" . $rawText;
 
-        // 4. Handle the Response
+        $response = Http::withoutVerifying()
+            ->timeout(30)
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $apiKey, [
+                'contents' => [
+                    ['parts' => [['text' => $prompt]]]
+                ],
+                'generationConfig' => [
+                    'temperature'     => 0.1,
+                    'maxOutputTokens' => 512,
+                ],
+            ]);
+
         if ($response->successful()) {
-            $geminiData = $response->json();
-            
-            // Extract the actual JSON string from Gemini's response structure
-            $extractedJsonString = $geminiData['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
-            
-            // Decode it into a PHP array so we can send it cleanly back to Flutter
-            $parsedCardData = json_decode($extractedJsonString, true);
+            $geminiData        = $response->json();
+            $extractedJson     = $geminiData['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
+
+            // Strip any accidental markdown fences
+            $extractedJson = trim(preg_replace('/```json|```/', '', $extractedJson));
+
+            $parsedCardData = json_decode($extractedJson, true);
 
             return response()->json([
                 'status' => 'success',
-                'data' => $parsedCardData
+                'data'   => $parsedCardData,
             ]);
         }
 
-        // If Gemini fails, return an error
         return response()->json([
-            'status' => 'error',
+            'status'  => 'error',
             'message' => 'Failed to process card with AI.',
-            'details' => $response->json()
+            'details' => $response->json(),
         ], 500);
     }
 }

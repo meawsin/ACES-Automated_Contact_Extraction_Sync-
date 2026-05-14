@@ -6,11 +6,19 @@ import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize local Hive database
   await Hive.initFlutter();
+
+  // 1. Register adapters FIRST, before opening any box
   Hive.registerAdapter(ScanRecordAdapter());
-  await Hive.openBox<ScanRecord>('scansBox');
+
+  // 2. Open the typed box ONCE
+  try {
+    await Hive.openBox<ScanRecord>('scan_records');
+  } catch (e) {
+    print('Error opening Hive box: $e');
+    await Hive.deleteBoxFromDisk('scan_records');
+    await Hive.openBox<ScanRecord>('scan_records');
+  }
 
   runApp(const ACESApp());
 }

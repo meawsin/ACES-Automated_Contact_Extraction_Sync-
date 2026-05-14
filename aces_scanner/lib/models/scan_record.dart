@@ -1,4 +1,3 @@
-// lib/models/scan_record.dart
 import 'package:hive/hive.dart';
 
 part 'scan_record.g.dart';
@@ -6,25 +5,34 @@ part 'scan_record.g.dart';
 @HiveType(typeId: 0)
 class ScanRecord extends HiveObject {
   @HiveField(0)
-  final String name;
+  String name;
 
   @HiveField(1)
-  final String organization;
+  String? organization;
 
   @HiveField(2)
-  final String designation;
+  String? designation;
 
   @HiveField(3)
-  final DateTime scannedAt;
+  DateTime scannedAt;
 
   @HiveField(4)
-  final bool isSynced;
+  bool isSynced;
+
+  // --- NEW FIELDS ---
+  @HiveField(5)
+  String phone;
+
+  @HiveField(6)
+  String email;
 
   ScanRecord({
     required this.name,
     required this.organization,
     required this.designation,
     required this.scannedAt,
-    this.isSynced = true,
+    this.isSynced = false,
+    this.phone = '',
+    this.email = '',
   });
 }

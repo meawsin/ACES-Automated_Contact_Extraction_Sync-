@@ -18,17 +18,19 @@ class ScanRecordAdapter extends TypeAdapter<ScanRecord> {
     };
     return ScanRecord(
       name: fields[0] as String,
-      organization: fields[1] as String,
-      designation: fields[2] as String,
+      organization: fields[1] as String?,
+      designation: fields[2] as String?,
       scannedAt: fields[3] as DateTime,
       isSynced: fields[4] as bool,
+      phone: fields[5] as String,
+      email: fields[6] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, ScanRecord obj) {
     writer
-      ..writeByte(5)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -38,7 +40,11 @@ class ScanRecordAdapter extends TypeAdapter<ScanRecord> {
       ..writeByte(3)
       ..write(obj.scannedAt)
       ..writeByte(4)
-      ..write(obj.isSynced);
+      ..write(obj.isSynced)
+      ..writeByte(5)
+      ..write(obj.phone)
+      ..writeByte(6)
+      ..write(obj.email);
   }
 
   @override

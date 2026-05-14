@@ -1,9 +1,10 @@
 // lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 import '../models/scan_record.dart';
-import 'package:intl/intl.dart'; // Add 'intl' to pubspec for date formatting
 import 'scanner_screen.dart';
+import 'manual_entry_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -14,12 +15,16 @@ class HomeScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ACES Scanner', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('ACES'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.edit_document),
+            tooltip: 'Add Manually',
             onPressed: () {
-              // TODO: Navigate to settings to update Laravel API URL
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ManualEntryScreen()),
+              );
             },
           ),
         ],
@@ -60,7 +65,18 @@ class HomeScreen extends StatelessWidget {
                     '${scan.name} - ${scan.designation}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text('${scan.organization} • $timeFormatted'),
+                 subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${scan.organization} • $timeFormatted'),
+                        const SizedBox(height: 4),
+                        Text('📞 ${scan.phone}', style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                        Text('✉️ ${scan.email}', style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                      ],
+                    ),
+                  ),
                   trailing: Icon(
                     scan.isSynced ? Icons.check_circle : Icons.sync_problem,
                     color: scan.isSynced ? Colors.green : Colors.red,
