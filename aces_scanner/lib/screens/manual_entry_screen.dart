@@ -32,7 +32,7 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
         isSynced: false,
       );
 
-      final scansBox = Hive.box<ScanRecord>('scansBox');
+      final scansBox = Hive.box<ScanRecord>('scan_records');
       await scansBox.add(newRecord);
 
       if (!mounted) return;

@@ -3,15 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'models/scan_record.dart';
 import 'screens/home_screen.dart';
+import 'services/app_settings.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
 
-  // 1. Register adapters FIRST, before opening any box
+  // 1. Register adapters FIRST
   Hive.registerAdapter(ScanRecordAdapter());
 
-  // 2. Open the typed box ONCE
+  // 2. Open settings box (untyped key-value store)
+  await Hive.openBox(AppSettings.boxName);
+
+  // 3. Open scan records box
   try {
     await Hive.openBox<ScanRecord>('scan_records');
   } catch (e) {
@@ -32,7 +36,7 @@ class ACESApp extends StatelessWidget {
       title: 'ACES Scanner',
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        useMaterial3: true, // Modern UI components
+        useMaterial3: true,
       ),
       home: const HomeScreen(),
       debugShowCheckedModeBanner: false,

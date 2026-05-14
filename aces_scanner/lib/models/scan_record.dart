@@ -19,12 +19,12 @@ class ScanRecord extends HiveObject {
   @HiveField(4)
   bool isSynced;
 
-  // --- NEW FIELDS ---
   @HiveField(5)
   String phone;
 
   @HiveField(6)
   String email;
+
 
   ScanRecord({
     required this.name,

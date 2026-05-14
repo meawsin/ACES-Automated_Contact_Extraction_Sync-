@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:hive/hive.dart';
 import '../models/scan_record.dart';
+import '../services/app_settings.dart';
 
 enum ScanState { scanningFront, scanningBack, processing }
 
@@ -25,17 +26,22 @@ class _ScannerScreenState extends State<ScannerScreen> {
   ScanState _currentState = ScanState.scanningFront;
   bool _isProcessingFrame = false;
   
+  DateTime _lastProcessedTime = DateTime.now();
   String _frontCardText = "";
   String _backCardText = "";
-  String _liveTextPreview = "Looking for text...";
   int _stabilityCounter = 0;
+
+  // 1. REPLACED String WITH ValueNotifier
+  // This allows us to update the text on screen without rebuilding the camera preview!
+  final ValueNotifier<String> _liveTextPreview = ValueNotifier<String>("Looking for text...");
 
   @override
   void initState() {
     super.initState();
     _initializeCamera();
   }
-Future<void> _initializeCamera() async {
+
+  Future<void> _initializeCamera() async {
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
 
@@ -43,8 +49,6 @@ Future<void> _initializeCamera() async {
       cameras.first,
       ResolutionPreset.high,
       enableAudio: false,
-      // --- THIS IS THE MAGIC FIX ---
-      // Force Android to use NV21 and iOS to use BGRA8888
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
 
@@ -56,86 +60,88 @@ Future<void> _initializeCamera() async {
   }
 
   void _startContinuousScanning() {
-      _cameraController!.startImageStream((CameraImage image) async {
-        if (_isProcessingFrame || _currentState == ScanState.processing) return;
-        _isProcessingFrame = true;
+    _cameraController!.startImageStream((CameraImage image) async {
+      if (_isProcessingFrame || _currentState == ScanState.processing) return;
+      
+      // --- NEW: THE THROTTLE ---
+      // Only run ML Kit once every 500 milliseconds (2 times a second)
+      final now = DateTime.now();
+      if (now.difference(_lastProcessedTime).inMilliseconds < 500) {
+        return; // Skip this frame, let the camera render!
+      }
+      
+      _isProcessingFrame = true;
+      _lastProcessedTime = now; // Update the clock
 
-        try {
-          final WriteBuffer allBytes = WriteBuffer();
-          for (final Plane plane in image.planes) {
-            allBytes.putUint8List(plane.bytes);
+      try {
+        final WriteBuffer allBytes = WriteBuffer();
+        for (final Plane plane in image.planes) {
+          allBytes.putUint8List(plane.bytes);
+        }
+        final bytes = allBytes.done().buffer.asUint8List();
+
+        final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
+        final imageRotation = InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg;
+        final inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? 
+                       (Platform.isAndroid ? InputImageFormat.nv21 : InputImageFormat.bgra8888);
+
+        final inputImageData = InputImageMetadata(
+          size: imageSize,
+          rotation: imageRotation,
+          format: inputImageFormat,
+          bytesPerRow: image.planes.first.bytesPerRow,
+        );
+
+        final inputImage = InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
+        
+        final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
+
+        if (mounted) {
+          String previewString = recognizedText.text.replaceAll('\n', ' ');
+          if (previewString.length > 50) {
+            previewString = '${previewString.substring(0, 50)}...';
           }
-          final bytes = allBytes.done().buffer.asUint8List();
+          _liveTextPreview.value = previewString; 
+        }
 
-          final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          final imageRotation = InputImageRotationValue.fromRawValue(_cameraController!.description.sensorOrientation) ?? InputImageRotation.rotation0deg;
-          final inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? 
-                         (Platform.isAndroid ? InputImageFormat.nv21 : InputImageFormat.bgra8888);
-
-          final inputImageData = InputImageMetadata(
-            size: imageSize,
-            rotation: imageRotation,
-            format: inputImageFormat,
-            bytesPerRow: image.planes.first.bytesPerRow,
-          );
-
-          final inputImage = InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
-          
-          final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-
-          // --- NEW: Visual Debugging ---
-          if (mounted) {
-            setState(() {
-              // Show the first 50 chars of whatever it sees
-              _liveTextPreview = recognizedText.text.replaceAll('\n', ' ');
-              if (_liveTextPreview.length > 50) {
-                _liveTextPreview = '${_liveTextPreview.substring(0, 50)}...';
-              }
-            });
-          }
-          // -----------------------------
-
-          // --- NEW: Stability & Focus Logic ---
-        // A standard visiting card has roughly 50-100 characters. 
+        // --- Stability & Focus Logic ---
         if (recognizedText.text.length > 40) { 
           _stabilityCounter++;
           
-          // Require 5 consecutive frames of good text (approx 1-1.5 seconds of holding still)
-          if (_stabilityCounter >= 5) {
+          // Reduced requirement from 5 to 3 since we are scanning slower now
+          if (_stabilityCounter >= 3) { 
             HapticFeedback.heavyImpact(); 
             
             if (_currentState == ScanState.scanningFront) {
               setState(() {
                 _frontCardText = recognizedText.text;
                 _currentState = ScanState.scanningBack; 
-                _stabilityCounter = 0; // Reset for the back card
-                _liveTextPreview = "Flip to Back...";
+                _stabilityCounter = 0; 
               });
+              _liveTextPreview.value = "Flip to Back..."; 
             } else if (_currentState == ScanState.scanningBack) {
               _backCardText = recognizedText.text;
               _finishScanning();
             }
           }
         } else {
-          // If the camera moves or gets blurry, reset the counter
           _stabilityCounter = 0; 
         }
-        // ------------------------------------
-        } catch (e) {
-          // --- NEW: Expose the Error ---
-          print("ML KIT ERROR: $e");
-        } finally {
-          _isProcessingFrame = false;
-        }
-      });
-    }
+      } catch (e) {
+        print("ML KIT ERROR: $e");
+      } finally {
+        _isProcessingFrame = false;
+      }
+    });
+  }
+
+
   Future<void> _finishScanning() async {
     setState(() => _currentState = ScanState.processing);
     _cameraController?.stopImageStream();
     
     String finalText = "$_frontCardText\n\n$_backCardText";
     
-    // Show a loading dialog while talking to Laravel
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -143,14 +149,12 @@ Future<void> _initializeCamera() async {
     );
 
     try {
-      // 1. Send the raw text to your Laravel API
       final response = await http.post(
-        Uri.parse('http://192.168.68.135:8000/api/parse-card'),
+        Uri.parse(AppSettings.parseCardEndpoint),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'raw_text': finalText}),
       );
 
-      // Dismiss the loading indicator
       if (!mounted) return;
       Navigator.pop(context); 
 
@@ -158,13 +162,12 @@ Future<void> _initializeCamera() async {
         final responseData = jsonDecode(response.body);
         final parsedData = responseData['data'];
 
-        // 2. Save the AI's structured data into our local Hive Database
-        final scansBox = Hive.box<ScanRecord>('scansBox');
+        final scansBox = Hive.box<ScanRecord>('scan_records'); // Make sure this name matches main.dart!
         final newRecord = ScanRecord(
           name: parsedData['Name'] ?? 'Unknown Name',
           organization: parsedData['Organisation'] ?? 'Unknown Org',
           designation: parsedData['Designation'] ?? 'Unknown Title',
-          phone: parsedData['Mobile'] ?? parsedData['Telephone'] ?? 'No Phone', // Fallback to Telephone if Mobile is null
+          phone: parsedData['Mobile'] ?? parsedData['Telephone'] ?? 'No Phone', 
           email: parsedData['Email'] ?? 'No Email',
           scannedAt: DateTime.now(),
           isSynced: false, 
@@ -172,7 +175,6 @@ Future<void> _initializeCamera() async {
         
         await scansBox.add(newRecord);
 
-        // 3. Go back to Home Screen
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Card parsed and saved locally!'), backgroundColor: Colors.green),
         );
@@ -183,11 +185,11 @@ Future<void> _initializeCamera() async {
       }
     } catch (e) {
       if (!mounted) return;
-      Navigator.pop(context); // Dismiss loading
+      Navigator.pop(context); 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Network Error: $e'), backgroundColor: Colors.red),
       );
-      Navigator.pop(context); // Go back to Home Screen
+      Navigator.pop(context); 
     }
   }
 
@@ -195,6 +197,7 @@ Future<void> _initializeCamera() async {
   void dispose() {
     _cameraController?.dispose();
     _textRecognizer.close();
+    _liveTextPreview.dispose(); // 3. Dispose the notifier to prevent memory leaks
     super.dispose();
   }
 
@@ -209,13 +212,10 @@ Future<void> _initializeCamera() async {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera Feed with Aspect Ratio Fix
           SizedBox.expand(
             child: FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
-                // We swap height and width here because camera sensors are natively landscape, 
-                // but your phone is being held in portrait mode.
                 width: _cameraController!.value.previewSize!.height,
                 height: _cameraController!.value.previewSize!.width,
                 child: CameraPreview(_cameraController!),
@@ -223,12 +223,10 @@ Future<void> _initializeCamera() async {
             ),
           ),
 
-          // UI Overlay
           SafeArea(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top Instruction Text
                 Container(
                   padding: const EdgeInsets.all(16),
                   color: Colors.black54,
@@ -240,7 +238,6 @@ Future<void> _initializeCamera() async {
                   ),
                 ),
 
-                // Center Bounding Box (Visual Guide)
                 Container(
                   height: 250,
                   width: 350,
@@ -253,17 +250,22 @@ Future<void> _initializeCamera() async {
                   ),
                 ),
                 
-                // --- NEW: Live Text Preview ---
+                // 4. UPDATED: Wrapped the Text in a ValueListenableBuilder
+                // Now, ONLY this text widget redraws when ML kit finds new text.
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  child: Text(
-                    _liveTextPreview,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.yellow, fontSize: 14),
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: _liveTextPreview,
+                    builder: (context, value, child) {
+                      return Text(
+                        value,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.yellow, fontSize: 14),
+                      );
+                    },
                   ),
                 ),
 
-                // Bottom Controls (Skip Button)
                 Padding(
                   padding: const EdgeInsets.all(32.0),
                   child: _currentState == ScanState.scanningBack 
@@ -277,7 +279,7 @@ Future<void> _initializeCamera() async {
                           foregroundColor: Colors.white,
                         ),
                       )
-                    : const SizedBox(height: 48), // Empty space to keep layout balanced
+                    : const SizedBox(height: 48), 
                 ),
               ],
             ),
