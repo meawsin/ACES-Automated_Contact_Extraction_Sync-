@@ -17,7 +17,7 @@ class AppSettings {
   }
 
   // Full endpoint for card parsing
-  static String get parseCardEndpoint => '${apiUrl}/api/parse-card';
+  static String get parseCardEndpoint => '$apiUrl/api/parse-card';
 
   // Save the API base URL
   static Future<void> setApiUrl(String url) async {

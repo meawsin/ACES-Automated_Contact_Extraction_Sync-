@@ -10,35 +10,35 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _apiUrlController;
-  bool _isSaving = false;
+  final _formKey        = GlobalKey<FormState>();
+  late TextEditingController _apiUrlCtrl;
+  bool _isSaving        = false;
+
+  static const _navy = Color(0xFF0D1B2A);
+  static const _teal = Color(0xFF00C2A8);
 
   @override
   void initState() {
     super.initState();
-    _apiUrlController = TextEditingController(text: AppSettings.apiUrl);
+    _apiUrlCtrl = TextEditingController(text: AppSettings.apiUrl);
   }
 
   @override
   void dispose() {
-    _apiUrlController.dispose();
+    _apiUrlCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
-
-    await AppSettings.setApiUrl(_apiUrlController.text.trim());
-
+    await AppSettings.setApiUrl(_apiUrlCtrl.text.trim());
     if (!mounted) return;
     setState(() => _isSaving = false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Settings saved!'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
+        backgroundColor: Color(0xFF00875A),
       ),
     );
   }
@@ -47,25 +47,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset Settings'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Reset Settings',
+            style: TextStyle(fontWeight: FontWeight.w700, color: _navy)),
         content: const Text('Reset all settings to their defaults?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reset', style: TextStyle(color: Colors.red)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600),
+            child: const Text('Reset'),
           ),
         ],
       ),
     );
 
     if (confirmed != true) return;
-
     await AppSettings.resetToDefaults();
     if (!mounted) return;
-    setState(() {
-      _apiUrlController.text = AppSettings.apiUrl;
-    });
+    setState(() => _apiUrlCtrl.text = AppSettings.apiUrl);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Settings reset to defaults.')),
     );
@@ -74,121 +77,188 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Settings'),
+        backgroundColor: _navy,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('Settings',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         actions: [
           TextButton(
             onPressed: _reset,
-            child: const Text('Reset', style: TextStyle(color: Colors.red)),
+            child: const Text('Reset',
+                style: TextStyle(color: Color(0xFFFF6B6B), fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const SizedBox(height: 8),
+            _buildSectionCard(
+              icon:  Icons.dns_outlined,
+              title: 'Backend Configuration',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: _apiUrlCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'API Base URL',
+                      hintText:  'http://192.168.0.148:8080',
+                      helperText: 'No trailing slash. Used for all API calls.',
+                      prefixIcon: const Icon(Icons.link, size: 18,
+                          color: Color(0xFF8899AA)),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear, size: 18,
+                            color: Color(0xFF8899AA)),
+                        onPressed: () => _apiUrlCtrl.clear(),
+                      ),
+                    ),
+                    keyboardType: TextInputType.url,
+                    autocorrect:  false,
+                    style: const TextStyle(fontSize: 14, color: _navy),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'URL is required';
+                      final uri = Uri.tryParse(v.trim());
+                      if (uri == null || !uri.hasScheme) {
+                        return 'Include http:// or https://';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  ValueListenableBuilder(
+                    valueListenable: _apiUrlCtrl,
+                    builder: (_, _, _) {
+                      final url      = _apiUrlCtrl.text.trim();
+                      final endpoint = url.isEmpty ? '…' : '$url/api/parse-card';
+                      return Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _teal.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: _teal.withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.api_outlined, size: 14, color: _teal),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                endpoint,
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    color: _teal,
+                                    fontFamily: 'monospace'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _teal,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_outlined, size: 20),
+                label: Text(_isSaving ? 'Saving…' : 'Save Settings',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            _buildSectionCard(
+              icon:  Icons.info_outline,
+              title: 'Network Note',
+              child: Text(
+                'Your device and the Laravel server must be on the same Wi-Fi network. '
+                'For production, use a public HTTPS URL.',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // App version info
+            Center(
+              child: Text(
+                'ACES Scanner v1.0.0',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required IconData icon,
+    required String   title,
+    required Widget   child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE4E8EF)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              // ── Section: Backend ───────────────────────────────────────
-              const Text(
-                'Backend Configuration',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _apiUrlController,
-                decoration: InputDecoration(
-                  labelText: 'API Base URL',
-                  hintText: 'http://192.168.0.148:8000',
-                  helperText: 'No trailing slash. Used for all API calls.',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.dns_outlined),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.clear),
-                    tooltip: 'Clear',
-                    onPressed: () => _apiUrlController.clear(),
-                  ),
-                ),
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) return 'URL is required';
-                  final uri = Uri.tryParse(val.trim());
-                  if (uri == null || !uri.hasScheme) return 'Enter a valid URL (include http:// or https://)';
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 8),
-
-              // Live preview of the full endpoint
-              ValueListenableBuilder(
-                valueListenable: _apiUrlController,
-                builder: (context, _, __) {
-                  final url = _apiUrlController.text.trim();
-                  final endpoint = url.isEmpty ? '...' : '$url/api/parse-card';
-                  return Text(
-                    'Parse endpoint: $endpoint',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 32),
-
-              // ── Save Button ────────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _save,
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: Text(_isSaving ? 'Saving...' : 'Save Settings'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.all(16),
-                    backgroundColor: Colors.blueAccent,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              // ── Info Card ──────────────────────────────────────────────
-              Card(
-                color: Colors.blue.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Make sure your device and the Laravel server are on the same network. '
-                          'For production, use your server\'s public URL with https://.',
-                          style: TextStyle(fontSize: 13, color: Colors.blue.shade900),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              Icon(icon, size: 15, color: _teal),
+              const SizedBox(width: 6),
+              Text(title.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _teal,
+                      letterSpacing: 1.1)),
             ],
           ),
-        ),
+          const SizedBox(height: 14),
+          child,
+        ],
       ),
     );
   }

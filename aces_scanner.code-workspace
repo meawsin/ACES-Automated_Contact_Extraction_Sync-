@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "aces_scanner"
+		},
+		{
+			"path": "aces_backend"
+		}
+	],
+	"settings": {
+		"java.configuration.updateBuildConfiguration": "interactive"
+	}
+}

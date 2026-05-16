@@ -49,6 +49,24 @@ class SyncController extends Controller
             $designationChanged = !empty($designation) && strcasecmp($existingDesignation, $designation) !== 0;
             $orgChanged         = !empty($organisation) && strcasecmp($existingOrg, $organisation) !== 0;
 
+            // BUG FIX: Build resolved_row by merging incoming + existing.
+            // For each field: use the incoming value if it is non-empty,
+            // otherwise fall back to whatever was already in the sheet.
+            // This prevents a partial rescan from wiping out existing data
+            // (e.g. address was on the sheet but not on the new scan).
+            $mergedRow = [
+                $existingData[0],                                          // SL (unchanged)
+                $name,                                                     // Name (always from incoming)
+                $designation  ?: trim($existingData[2]),                   // Designation
+                $organisation ?: trim($existingData[3]),                   // Organisation
+                $mobile       ?: trim($existingData[4]),                   // Mobile
+                $telephone    ?: trim($existingData[5]),                   // Telephone
+                $email        ?: trim($existingData[6]),                   // Email
+                $fax          ?: trim($existingData[7]),                   // FAX
+                $address      ?: trim($existingData[8]),                   // Address
+                $links        ?: trim($existingData[9]),                   // Links
+            ];
+
             // ── Rule 1: Designation changed ───────────────────────────────
             if ($designationChanged && !$orgChanged) {
                 return response()->json([
@@ -58,10 +76,7 @@ class SyncController extends Controller
                     'existing'      => ['designation' => $existingDesignation, 'organisation' => $existingOrg],
                     'incoming'      => ['designation' => $designation,         'organisation' => $organisation],
                     'row_number'    => $existing['row_number'],
-                    'resolved_row'  => [
-                        $existingData[0], $name, $designation, $organisation,
-                        $mobile, $telephone, $email, $fax, $address, $links,
-                    ],
+                    'resolved_row'  => $mergedRow,
                 ]);
             }
 
@@ -74,10 +89,7 @@ class SyncController extends Controller
                     'existing'      => ['designation' => $existingDesignation, 'organisation' => $existingOrg],
                     'incoming'      => ['designation' => $designation,         'organisation' => $organisation],
                     'row_number'    => $existing['row_number'],
-                    'resolved_row'  => [
-                        $existingData[0], $name, $designation, $organisation,
-                        $mobile, $telephone, $email, $fax, $address, $links,
-                    ],
+                    'resolved_row'  => $mergedRow,
                 ]);
             }
 

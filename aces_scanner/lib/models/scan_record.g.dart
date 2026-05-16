@@ -17,20 +17,25 @@ class ScanRecordAdapter extends TypeAdapter<ScanRecord> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return ScanRecord(
-      name: fields[0] as String,
+      name:         fields[0] as String,
       organization: fields[1] as String?,
-      designation: fields[2] as String?,
-      scannedAt: fields[3] as DateTime,
-      isSynced: fields[4] as bool,
-      phone: fields[5] as String,
-      email: fields[6] as String,
+      designation:  fields[2] as String?,
+      scannedAt:    fields[3] as DateTime,
+      isSynced:     fields[4] as bool,
+      phone:        fields[5] as String,
+      email:        fields[6] as String,
+      // BUG FIX: New fields use ?? '' so old records without them load fine.
+      telephone:    fields[7] as String? ?? '',
+      fax:          fields[8] as String? ?? '',
+      address:      fields[9] as String? ?? '',
+      links:        fields[10] as String? ?? '',
     );
   }
 
   @override
   void write(BinaryWriter writer, ScanRecord obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -44,7 +49,15 @@ class ScanRecordAdapter extends TypeAdapter<ScanRecord> {
       ..writeByte(5)
       ..write(obj.phone)
       ..writeByte(6)
-      ..write(obj.email);
+      ..write(obj.email)
+      ..writeByte(7)
+      ..write(obj.telephone)
+      ..writeByte(8)
+      ..write(obj.fax)
+      ..writeByte(9)
+      ..write(obj.address)
+      ..writeByte(10)
+      ..write(obj.links);
   }
 
   @override

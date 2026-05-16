@@ -38,10 +38,10 @@ class SyncResponse {
 }
 
 class SyncService {
-  static String get _syncEndpoint => '${AppSettings.apiUrl}/api/sync-contact';
+  static String get _syncEndpoint    => '${AppSettings.apiUrl}/api/sync-contact';
   static String get _resolveEndpoint => '${AppSettings.apiUrl}/api/resolve-conflict';
 
-  /// Attempt to sync a single ScanRecord to Excel via Laravel.
+  /// Attempt to sync a single ScanRecord to Google Sheets via Laravel.
   static Future<SyncResponse> syncRecord(ScanRecord record) async {
     try {
       final response = await http.post(
@@ -49,52 +49,56 @@ class SyncService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name':         record.name,
-          'designation':  record.designation ?? '',
+          'designation':  record.designation  ?? '',
           'organisation': record.organization ?? '',
           'mobile':       record.phone,
           'email':        record.email,
-          'telephone':    '',
-          'fax':          '',
-          'address':      '',
-          'links':        '',
+          // BUG FIX: These were hard-coded as '' before; now pulled from the model.
+          'telephone':    record.telephone,
+          'fax':          record.fax,
+          'address':      record.address,
+          'links':        record.links,
         }),
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 60));
 
-      final data = jsonDecode(response.body);
+      final data   = jsonDecode(response.body) as Map<String, dynamic>;
       final status = data['status'] as String;
 
       switch (status) {
         case 'saved':
-          return SyncResponse(result: SyncResult.saved, message: data['message']);
+          return SyncResponse(result: SyncResult.saved, message: data['message'] as String);
 
         case 'duplicate':
-          return SyncResponse(result: SyncResult.duplicate, message: data['message']);
+          return SyncResponse(result: SyncResult.duplicate, message: data['message'] as String);
 
         case 'conflict':
           return SyncResponse(
-            result: SyncResult.conflict,
-            message: data['message'],
+            result:   SyncResult.conflict,
+            message:  data['message'] as String,
             conflict: ConflictInfo(
-              conflictType: data['conflict_type'],
-              message:      data['message'],
-              existing:     Map<String, dynamic>.from(data['existing']),
-              incoming:     Map<String, dynamic>.from(data['incoming']),
-              rowNumber:    data['row_number'],
-              resolvedRow:  List<dynamic>.from(data['resolved_row']),
+              conflictType: data['conflict_type'] as String,
+              message:      data['message']       as String,
+              existing:     Map<String, dynamic>.from(data['existing']  as Map),
+              incoming:     Map<String, dynamic>.from(data['incoming']  as Map),
+              rowNumber:    data['row_number']    as int,
+              resolvedRow:  List<dynamic>.from(data['resolved_row']    as List),
             ),
           );
 
         default:
-          return SyncResponse(result: SyncResult.error, message: data['message'] ?? 'Unknown error');
+          return SyncResponse(
+            result:  SyncResult.error,
+            message: data['message'] as String? ?? 'Unknown error',
+          );
       }
     } catch (e) {
       return SyncResponse(result: SyncResult.error, message: e.toString());
     }
   }
 
-  /// Send the user's conflict resolution decision to Laravel.
+  /// Send the user's conflict-resolution decision to Laravel.
   static Future<bool> resolveConflict({
-    required String action, // 'update' or 'new'
+    required String action,       // 'update' or 'new'
     required int rowNumber,
     required List<dynamic> resolvedRow,
   }) async {
@@ -107,21 +111,21 @@ class SyncService {
           'row_number':   rowNumber,
           'resolved_row': resolvedRow,
         }),
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 60));
 
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
       return data['status'] == 'saved';
     } catch (e) {
       return false;
     }
   }
 
-  /// Sync all unsynced records in the Hive box.
-  /// Returns a summary: { synced, skipped, conflicts, errors }
+  /// Sync all unsynced records.
+  /// Returns a summary map: { synced, skipped, conflicts, errors }.
   static Future<Map<String, int>> syncAll({
-    required Function(ScanRecord record, ConflictInfo conflict) onConflict,
+    required Future<void> Function(ScanRecord record, ConflictInfo conflict) onConflict,
   }) async {
-    final box = Hive.box<ScanRecord>('scan_records');
+    final box      = Hive.box<ScanRecord>('scan_records');
     final unsynced = box.values.where((r) => !r.isSynced).toList();
 
     int synced = 0, skipped = 0, conflicts = 0, errors = 0;
@@ -137,7 +141,8 @@ class SyncService {
           break;
 
         case SyncResult.duplicate:
-          // Already in Excel — mark as synced so we don't keep retrying
+          // The contact is already up to date in the sheet — mark local copy synced
+          // so we don't keep re-sending it on every sync press.
           record.isSynced = true;
           await record.save();
           skipped++;
@@ -154,6 +159,11 @@ class SyncService {
       }
     }
 
-    return {'synced': synced, 'skipped': skipped, 'conflicts': conflicts, 'errors': errors};
+    return {
+      'synced':    synced,
+      'skipped':   skipped,
+      'conflicts': conflicts,
+      'errors':    errors,
+    };
   }
 }

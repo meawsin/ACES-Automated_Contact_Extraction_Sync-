@@ -25,6 +25,19 @@ class ScanRecord extends HiveObject {
   @HiveField(6)
   String email;
 
+  // BUG FIX: Added missing fields that Gemini extracts but were previously discarded.
+  // These are appended as new HiveFields (7–10) so existing Hive data is not broken.
+  @HiveField(7)
+  String telephone;
+
+  @HiveField(8)
+  String fax;
+
+  @HiveField(9)
+  String address;
+
+  @HiveField(10)
+  String links;
 
   ScanRecord({
     required this.name,
@@ -34,5 +47,9 @@ class ScanRecord extends HiveObject {
     this.isSynced = false,
     this.phone = '',
     this.email = '',
+    this.telephone = '',
+    this.fax = '',
+    this.address = '',
+    this.links = '',
   });
 }
